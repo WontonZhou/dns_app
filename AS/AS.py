@@ -1,37 +1,68 @@
-import socket
+# This is the AS server
+from socket import *
 import json
+import os
 
-# define the port number and the file to store the DNS records
-AS_PORT = 53533
-DNS_RECORD_FILE = 'dns_records.json'
+server_port = 53533
+as_socket = socket(AF_INET, SOCK_DGRAM)
+as_socket.bind(('', server_port))
 
-
-def load_dns_records():  # function to load DNS records
-    with open(DNS_RECORD_FILE, 'r') as file:
-        return json.load(file)
-
-
-def save_dns_record(record):  # function to save DNS record
-    records = load_dns_records()
-    records[record["NAME"]] = record
-    with open(DNS_RECORD_FILE, 'w') as file:
-        json.dump(records, file, indent=4)
+if not os.path.exists('dns.txt'):
+    open('dns.txt', 'w').close()  # make sure dns.txt exists
 
 
-def main():
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as AS:  # Create UDP socket
-        AS.bind(('', AS_PORT))  # Bind to the port
-        print(f"AS server running on port {AS_PORT}")  # Print the port number
-        while True:
-            data, addr = AS.recvfrom(2048)  # receive data from client including address
-            data = json.loads(data.decode('utf-8'))  # decode the data into JSON
-            if 'VALUE' in data:  # Registration request
-                save_dns_record(data)
-                response = {"ip": data['VALUE']}  # ip is needed here to work with US and FS
-                response = json.dumps(response).encode('utf-8')
-                print(f"Registered: {data}")
-            else:  # Query request
-                records = load_dns_records()
-                response = json.dumps(records.get(data['NAME'], {"error": "500 Not Found"})).encode('utf-8')
-                print(f"Queried: {data}")
-            AS.sendto(response, addr)  # send the response to the client
+def registration(request):
+    with open('dns.txt', 'a', encoding='utf-8') as outfile:
+        json.dump(request, outfile)
+        outfile.write('\n')
+    print('201 Registered')
+    return '201 Registered'
+
+
+def query(request):
+    with open("dns.txt", 'r', encoding='utf-8') as infile:
+        for line in infile:
+            data = json.loads(line)
+            if request['TYPE'] == data['TYPE'] and request['NAME'] == data['NAME']:
+                print('200 OK')
+                return json.dumps(data)
+    print('404 Not Found')
+    return '404 Not Found'
+
+
+def process_request(request):
+    if len(request) == 4:  # if there are 4 parameters, it is a registration request
+        return registration(request)
+    elif len(request) == 2:  # if there are 2 parameters, it is a query request
+        return query(request)
+    else:
+        print('400 Bad Request')
+        return '400 Bad Request'
+
+
+while True:
+    message, client_address = as_socket.recvfrom(2048)
+    mes = json.loads(message.decode())
+    response = process_request(mes)
+    as_socket.sendto(response.encode(), client_address)
+
+# def test_dns():
+#     print("Current working directory:", os.getcwd())
+#     registration_request = {
+#         "TYPE": "A",
+#         "NAME": "www.google.com",
+#         "VALUE": "192.0.2.1",
+#         "TTL": 10
+#     }
+#     print("registration request")
+#     response = process_request(registration_request)
+#     print(response)
+#     query_request = {
+#         "TYPE": "A",
+#         "NAME": "example.com"
+#     }
+#     print("\nDNS query")
+#     response = process_request(query_request)
+#     print(response)
+#
+# test_dns()  # test the DNS server
