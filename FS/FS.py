@@ -3,22 +3,24 @@ import socket
 
 from flask import Flask, request, jsonify
 
-app = Flask(__name__)  # initialize Flask app
 fib_cache = {}  # to avoid redundant calculations
 
+app = Flask(__name__)
 
-@app.route('/register', methods=['PUT'])  # register the server to the AS
+
+@app.route('/register', methods=['PUT'])
 def register():
-    data = request.json  # should be same as request.get_json() but with a different name
+    data = request.json
     hostname = data.get('hostname')
-    FS_ip = request.args.get('ip')
-    as_ip = request.args.get('as_ip')
-    as_port = request.args.get('as_port')
+    FS_ip = request.host  # get the IP of the FS server
+    as_ip = data.get('as_ip')
+    as_port = data.get('as_port')
 
-    if not all([hostname, FS_ip, as_ip, as_port]):  # check if all parameters are present
-        return jsonify({"error": "parameters missing"}), 400
+    if not all([hostname, FS_ip, as_ip, as_port]):
+        return "error 400"
 
-    data = json.dumps({  # create the data to send to the AS
+    # Send the registration request to AS
+    register_data = json.dumps({
         "TYPE": "A",
         "NAME": hostname,
         "VALUE": FS_ip,
@@ -27,22 +29,27 @@ def register():
 
     as_port = int(as_port)
 
-    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # create UDP socket
-    client.sendto(data.encode(), (as_ip, as_port))  # send the data to the AS
-    message, addr = client.recvfrom(2048)  # receive the response from the AS
-    response = message.decode()  # decode the response
-    print(response)  # print the response
-    if 'ip' in response and response['ip'] == FS_ip:  # check if the IP is registered
-        return "Registration successful", 201
-    else:
-        return "Error", 500
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as client:
+        client.sendto(register_data.encode(), (as_ip, as_port))
+        message, _ = client.recvfrom(2048)
+        response = message.decode()
+
+    # error handling
+    try:
+        response_data = json.loads(response)
+        if 'status' in response_data and response_data['status'] == 'success':
+            return "Registration Successful 201"
+        else:
+            return "error 500"
+    except json.JSONDecodeError:
+        return "error 500"
 
 
 @app.route('/fibonacci', methods=['GET'])
 def get_fibonacci():
     number = request.args.get('number', type=int)  # get the number from the request
     if number is None or type(number) is not int:
-        return jsonify({"error": "not integer"}), 400  # return error if the number is not present or not an integer
+        return "error 400"  # return error if the number is not present or not an integer
     result = fib(number)
     return jsonify({"fibonacci number": result}), 200  # return the result
 
